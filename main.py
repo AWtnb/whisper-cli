@@ -21,7 +21,10 @@ load_dotenv(dotenv_path=os.path.join(get_root_dir(), ".env"))
 def send_email(to_address: str, attachment_path: str) -> None:
     msg = EmailMessage()
     msg["From"] = os.getenv("SENDER_ADDRESS")
-    msg["To"] = to_address
+    if len(to_address) < 1:
+        msg["To"] = os.getenv("CC_ADDRESS")
+    else:
+        msg["To"] = to_address
     msg["Cc"] = os.getenv("CC_ADDRESS")
     msg["Subject"] = "【自動送信】文字起こしが完了しました"
     msg.set_content(
@@ -70,11 +73,7 @@ def dictate(src_path: str, model: str, mail_address: str) -> None:
     with open(out_path, mode="w", encoding="utf-8") as f:
         f.write(result_str)
 
-    if 0 < len(mail_address):
-        send_email(
-            mail_address,
-            out_path
-        )
+    send_email(mail_address, out_path)
 
     print("===== FINISED! =====")
 
@@ -94,13 +93,14 @@ def main(args) -> None:
         print("ffmpeg not found on this pc.")
         return
     try:
-        assert 2 < len(args), "specify at least target file path and mode"
+        models = ["base", "small", "medium", "large"]
+        assert 1 < len(args), "missing input file and model ({})".format(
+            "|".join(models)
+        )
+        assert 2 < len(args), "missing model ({})".format("|".join(models))
         src = args[1]
         model = args[2]
-        models = ["base", "small", "medium", "large"]
-        assert model in models, "model should be one of {}".format(
-            ", ".join(["'" + m + "'" for m in models])
-        )
+        assert model in models, "model should be ({})".format("|".join(models))
         if 3 < len(args):
             address = args[3]
         else:
