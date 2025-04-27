@@ -27,5 +27,5 @@ SMTP_PORT=●●
 Run:
 
 ```
-uv run .\main.py hogehoge@fuga.net small
+uv run .\dictate.py hogehoge@fuga.net small
 ```
