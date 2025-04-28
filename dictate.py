@@ -1,24 +1,18 @@
 import os
 import smtplib
-import subprocess
 import sys
+import shutil
 from email.message import EmailMessage
+from typing import List
 
 import whisper
 from dotenv import load_dotenv
 
 
-# https://github.com/theskumar/python-dotenv/issues/259
-def get_root_dir() -> str:
-    if getattr(sys, "frozen", False):
-        return sys._MEIPASS
-    return os.getcwd()
+load_dotenv(dotenv_path=".env")
 
 
-load_dotenv(dotenv_path=os.path.join(get_root_dir(), ".env"))
-
-
-def send_email(to_address: str, attachment_path: str) -> None:
+def send_email(to_address: str, attachment_path: str, total: int, idx: int) -> None:
     msg = EmailMessage()
     msg["From"] = os.getenv("SENDER_ADDRESS")
     if len(to_address) < 1:
@@ -26,10 +20,18 @@ def send_email(to_address: str, attachment_path: str) -> None:
     else:
         msg["To"] = to_address
     msg["Cc"] = os.getenv("CC_ADDRESS")
-    msg["Subject"] = "【自動送信】文字起こしが完了しました"
-    msg.set_content(
-        "文字起こしが完了しました！ 結果を添付します。\n\nPCにテキストファイルと音声データが残っているので適宜お片付けください。"
+    num = idx + 1
+    msg["Subject"] = "【自動送信】文字起こしが完了しました（{}/{}）".format(num, total)
+    content = "{}件中{}件目の文字起こしが完了しました！ 結果を添付します。\n\n".format(
+        total, num
     )
+    if num == total:
+        content += (
+            "PCにテキストファイルと音声データが残っているので適宜処分してください。"
+        )
+    else:
+        content += "引き続き残りのファイルの文字起こしを続けます。"
+    msg.set_content(content)
 
     with open(attachment_path, "rb") as f:
         msg.add_attachment(
@@ -46,20 +48,11 @@ def send_email(to_address: str, attachment_path: str) -> None:
         smtp.send_message(msg)
 
 
-def dictate(src_path: str, model: str, mail_address: str) -> None:
-    out_basename = os.path.splitext(os.path.basename(src_path))[0]
-    out_path = os.path.join(os.path.dirname(src_path), out_basename + ".txt")
-
-    # https://qiita.com/halhorn/items/d2672eee452ba5eb6241
-    ai_model = whisper.load_model(model, device="cpu")
-    _ = ai_model.half()
-    _ = ai_model.cpu()
-    for m in ai_model.modules():
-        if isinstance(m, whisper.model.LayerNorm):
-            m.float()
-
-    result = ai_model.transcribe(
-        src_path,
+def dictate(path: str, model: whisper.Whisper) -> str:
+    basename = os.path.splitext(os.path.basename(path))[0]
+    out_path = os.path.join(os.getcwd(), "out", basename + ".txt")
+    result = model.transcribe(
+        path,
         verbose=True,
         language="japanese",
         fp16=False,
@@ -69,46 +62,58 @@ def dictate(src_path: str, model: str, mail_address: str) -> None:
     lines = []
     for segment in result["segments"]:
         lines.append(segment["text"])
-    result_str = os.linesep.join(lines)
+
+    result_str = "\n".join(lines)
     with open(out_path, mode="w", encoding="utf-8") as f:
         f.write(result_str)
 
-    send_email(mail_address, out_path)
-
-    print("===== FINISED! =====")
+    return out_path
 
 
-def test_ffmpeg() -> bool:
-    try:
-        subprocess.run(
-            ["ffmpeg", "-version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-        )
-        return True
-    except:
-        return False
+def dictate_files(paths: List[str], model: str, mail_address: str) -> None:
+
+    # https://qiita.com/halhorn/items/d2672eee452ba5eb6241
+    ai_model = whisper.load_model(model, device="cpu")
+    _ = ai_model.half()
+    _ = ai_model.cpu()
+    for m in ai_model.modules():
+        if isinstance(m, whisper.model.LayerNorm):
+            m.float()
+
+    for i, path in enumerate(paths):
+        out_path = dictate(path, ai_model)
+        send_email(mail_address, out_path, len(paths), i)
+        print("===== FINISED! =====")
 
 
 def main(args) -> None:
-    if not test_ffmpeg():
+    if shutil.which("ffmpeg") is None:
         print("ffmpeg not found on this pc.")
         return
-    try:
-        models = ["base", "small", "medium", "large"]
-        assert 1 < len(args), "missing input file and model ({})".format(
-            "|".join(models)
+
+    models = ["base", "small", "medium", "large"]
+    if len(args) < 3:
+        print(
+            "Specify mail address to send notification by 1st arg, and specify model by 2nd arg ({}).".format(
+                "|".join(models)
+            )
         )
-        assert 2 < len(args), "missing model ({})".format("|".join(models))
-        src = args[1]
-        model = args[2]
-        assert model in models, "model should be ({})".format("|".join(models))
-        if 3 < len(args):
-            address = args[3]
-        else:
-            address = ""
-        dictate(src, model, address)
-    except AssertionError as err:
-        print("ERROR: {}\n".format(err))
         return
+    if "@" not in args[1]:
+        print("Invalid mail address.")
+        return
+    if args[2] not in models:
+        print("Model should be ({}).".format("|".join(models)))
+        return
+
+    address = args[1]
+    model = args[2]
+    targets = [
+        os.path.join(os.getcwd(), "in", f)
+        for f in os.listdir("in")
+        if f.endswith(".mp3")
+    ]
+    dictate_files(targets, model, address)
 
 
 if __name__ == "__main__":

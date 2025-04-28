@@ -6,26 +6,24 @@ Run [Whisper](https://github.com/openai/whisper/) on local PC.
 
 Require [ffmpeg](https://ffmpeg.org/) .
 
-Create `.env` at the same directory as `main.py`.
+1. Create `.env` at the same directory as `dictate.py` as below.
 
-```
-.\
-├─main.py
-└─.env
-```
+    ```
+    SENDER_ADDRESS=●●
+    CC_ADDRESS=●●
+    SENDER_PASSWORD=●●
+    SMTP_HOST=●●
+    SMTP_PORT=●●
+    ```
 
-`.env` :
+1. Put `.mp3` files in `.\in` directory.
 
-```
-SENDER_ADDRESS=●●
-CC_ADDRESS=●●
-SENDER_PASSWORD=●●
-SMTP_HOST=●●
-SMTP_PORT=●●
-```
+1. Run:
 
-Run:
+    ```
+    uv run .\dictate.py hogehoge@fuga.net small
+    ```
 
-```
-uv run .\dictate.py hogehoge@fuga.net small
-```
+    - Specify the email address to send notifications by the first argument.
+    - Specify the model as the second argument, one of `base`, `small`, `medium`, or `large`.
+    - Dictation results are save in the `.\out` directory.
